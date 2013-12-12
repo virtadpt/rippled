@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 class NetworkOPsImp
     : public NetworkOPs
     , public DeadlineTimer::Listener
@@ -337,7 +336,6 @@ public:
     getTxsAccountB (const RippleAddress& account, int32 minLedger, int32 maxLedger,  bool forward, Json::Value& token, int limit, bool bAdmin);
 
     std::vector<RippleAddress> getLedgerAffectedAccounts (uint32 ledgerSeq);
-    uint32 countAccountTxs (const RippleAddress& account, int32 minLedger, int32 maxLedger);
 
     //
     // Monitoring: publisher side
@@ -565,6 +563,14 @@ void NetworkOPsImp::processClusterTimer ()
         node.set_nodeload(it->second.getLoadFee());
         if (!it->second.getName().empty())
             node.set_nodename(it->second.getName());
+    }
+
+    Resource::Gossip gossip = getApp().getResourceManager().exportConsumers();
+    BOOST_FOREACH (Resource::Gossip::Item const& item, gossip.items)
+    {
+        protocol::TMLoadSource& node = *cluster.add_loadsources();
+        node.set_name (item.address);
+        node.set_cost (item.balance);
     }
 
     PackedMessage::pointer message = boost::make_shared<PackedMessage>(cluster, protocol::mtCLUSTER);
@@ -1830,24 +1836,6 @@ std::vector<NetworkOPsImp::txnMetaLedgerType> NetworkOPsImp::getAccountTxsB (
 }
 
 
-uint32
-NetworkOPsImp::countAccountTxs (const RippleAddress& account, int32 minLedger, int32 maxLedger)
-{
-    // can be called with no locks
-    uint32 ret = 0;
-    std::string sql = NetworkOPsImp::transactionsSQL ("COUNT(DISTINCT TransID) AS 'TransactionCount'", account,
-                      minLedger, maxLedger, false, 0, -1, true, true, true);
-
-    Database* db = getApp().getTxnDB ()->getDB ();
-    DeprecatedScopedLock sl (getApp().getTxnDB ()->getDBLock ());
-    SQL_FOREACH (db, sql)
-    {
-        ret = db->getInt ("TransactionCount");
-    }
-
-    return ret;
-}
-
 std::vector< std::pair<Transaction::pointer, TransactionMetaSet::pointer> >
 NetworkOPsImp::getTxsAccount (const RippleAddress& account, int32 minLedger, int32 maxLedger, bool forward, Json::Value& token, int limit, bool bAdmin)
 {
@@ -1856,12 +1844,12 @@ NetworkOPsImp::getTxsAccount (const RippleAddress& account, int32 minLedger, int
     uint32 NONBINARY_PAGE_LENGTH = 200;
     uint32 EXTRA_LENGTH = 20;
 
-    bool foundResume = token.isNull();
+    bool foundResume = token.isNull() || !token.isObject();
 
     uint32 numberOfResults, queryLimit;
     if (limit <= 0)
         numberOfResults = NONBINARY_PAGE_LENGTH;
-    else if (bAdmin && (limit > NONBINARY_PAGE_LENGTH))
+    else if (!bAdmin && (limit > NONBINARY_PAGE_LENGTH))
         numberOfResults = NONBINARY_PAGE_LENGTH;
     else
         numberOfResults = limit;
@@ -1882,6 +1870,10 @@ NetworkOPsImp::getTxsAccount (const RippleAddress& account, int32 minLedger, int
             return ret;
         }
     }
+
+    // ST NOTE We're using the token reference both for passing inputs and
+    //         outputs, so we need to clear it in between.
+    token = Json::nullValue;
 
     std::string sql = boost::str (boost::format
         ("SELECT AccountTransactions.LedgerSeq,AccountTransactions.TxnSeq,Status,RawTxn,TxnMeta "
@@ -1964,12 +1956,12 @@ NetworkOPsImp::getTxsAccountB (const RippleAddress& account, int32 minLedger, in
     uint32 BINARY_PAGE_LENGTH = 500;
     uint32 EXTRA_LENGTH = 20;
 
-    bool foundResume = token.isNull();
+    bool foundResume = token.isNull() || !token.isObject();
 
     uint32 numberOfResults, queryLimit;
     if (limit <= 0)
         numberOfResults = BINARY_PAGE_LENGTH;
-    else if (bAdmin && (limit > BINARY_PAGE_LENGTH))
+    else if (!bAdmin && (limit > BINARY_PAGE_LENGTH))
         numberOfResults = BINARY_PAGE_LENGTH;
     else
         numberOfResults = limit;

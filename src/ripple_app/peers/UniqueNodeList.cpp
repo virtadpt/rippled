@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 // XXX Dynamically limit fetching by distance.
 // XXX Want a limit of 2000 validators.
 
@@ -383,32 +382,25 @@ public:
 
     uint32 getClusterFee ()
     {
-        int thresh = getApp().getOPs().getNetworkTimeNC() - 120;
-        uint32 a = 0, b = 0;
+        int thresh = getApp().getOPs().getNetworkTimeNC() - 90;
 
-        ScopedUNLLockType sl (mUNLLock, __FILE__, __LINE__);
+        std::vector<uint32> fees;
         {
-            for (std::map<RippleAddress, ClusterNodeStatus>::iterator it = m_clusterNodes.begin(),
-                end = m_clusterNodes.end(); it != end; ++it)
+            ScopedUNLLockType sl (mUNLLock, __FILE__, __LINE__);
             {
-                if (it->second.getReportTime() >= thresh)
+                for (std::map<RippleAddress, ClusterNodeStatus>::iterator it = m_clusterNodes.begin(),
+                    end = m_clusterNodes.end(); it != end; ++it)
                 {
-                    uint32 fee = it->second.getLoadFee();
-                    if (fee > b)
-                    {
-                        if (fee > a)
-                        {
-                            b = a;
-                            a = fee;
-                        }
-                        else
-                            b = fee;
-                    }
+                    if (it->second.getReportTime() >= thresh)
+                        fees.push_back(it->second.getLoadFee());
                 }
             }
         }
 
-        return (b == 0) ? a : ((a + b + 1) / 2);
+        if (fees.empty())
+            return 0;
+        std::sort (fees.begin(), fees.end());
+        return fees[fees.size() / 2];
     }
 
     //--------------------------------------------------------------------------
@@ -503,18 +495,18 @@ public:
             nodeNetwork ();
         }
 
-        // Take the set of entries in IPS_FIXED and insert them into the
+        // Take the set of entries in IPS and insert them into the
         // "legacy endpoint" database so they will be served as IP addresses
         // in the legacy mtPEERS message. Note that this is all replaced by
         // the new PeerFinder.
         //
-        if (!getConfig ().IPS_FIXED.empty ())
+        if (!getConfig ().IPS.empty ())
         {
             std::vector<std::string>    vstrValues;
 
-            vstrValues.reserve (getConfig ().IPS_FIXED.size ());
+            vstrValues.reserve (getConfig ().IPS.size ());
 
-            BOOST_FOREACH (const std::string & strPeer, getConfig ().IPS_FIXED)
+            BOOST_FOREACH (const std::string & strPeer, getConfig ().IPS)
             {
                 std::string     strIP;
                 int             iPort;

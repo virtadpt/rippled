@@ -60,9 +60,8 @@ void startServer ()
 
             RPCHandler  rhHandler (&getApp().getOPs ());
 
-            // VFALCO TODO Clean up this magic number
-            LoadType loadType = LT_RPCReference;
-            Json::Value jvResult    = rhHandler.doCommand (jvCommand, Config::ADMIN, &loadType);
+            Resource::Charge loadType = Resource::feeReferenceRPC;
+            Json::Value jvResult    = rhHandler.doCommand (jvCommand, Config::ADMIN, loadType);
 
             if (!getConfig ().QUIET)
                 Log::out() << "Result: " << jvResult;
@@ -158,6 +157,11 @@ public:
         m_app = Application::New ();
 
         setAssertOnFailure (false);
+    }
+
+    ~RippleUnitTests ()
+    {
+        m_app = nullptr;
     }
 
     void logMessage (String const& message)
@@ -403,9 +407,7 @@ int RippleMain::run (int argc, char const* const* argv)
     //
     if (vm.count ("import"))
     {
-        String const optionString (vm ["import"].as <std::string> ());
-
-        getConfig ().importNodeDatabase = parseDelimitedKeyValueString (optionString);
+        getConfig ().doImport = true;
     }
 
     if (vm.count ("ledger"))

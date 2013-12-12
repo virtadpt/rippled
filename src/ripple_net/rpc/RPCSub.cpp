@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 SETUP_LOG (RPCSub)
 
 // Subscription object for JSON-RPC
@@ -195,7 +194,7 @@ private:
 //------------------------------------------------------------------------------
 
 RPCSub::RPCSub (InfoSub::Source& source)
-    : InfoSub (source)
+    : InfoSub (source, Consumer())
 {
 }
 

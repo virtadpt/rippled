@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 #ifndef RIPPLE_CONFIGSECTIONS_H_INCLUDED
 #define RIPPLE_CONFIGSECTIONS_H_INCLUDED
 
@@ -39,6 +38,7 @@ struct ConfigSection
 #define SECTION_CLUSTER_NODES           "cluster_nodes"
 #define SECTION_DATABASE_PATH           "database_path"
 #define SECTION_DEBUG_LOGFILE           "debug_logfile"
+#define SECTION_CONSOLE_LOG_OUTPUT      "console_log_output"
 #define SECTION_ELB_SUPPORT             "elb_support"
 #define SECTION_FEE_DEFAULT             "fee_default"
 #define SECTION_FEE_NICKNAME_CREATE     "fee_nickname_create"
@@ -93,6 +93,9 @@ struct ConfigSection
 #define SECTION_WEBSOCKET_PUBLIC_IP     "websocket_public_ip"
 #define SECTION_WEBSOCKET_PUBLIC_PORT   "websocket_public_port"
 #define SECTION_WEBSOCKET_PUBLIC_SECURE "websocket_public_secure"
+#define SECTION_WEBSOCKET_PROXY_IP     "websocket_proxy_ip"
+#define SECTION_WEBSOCKET_PROXY_PORT   "websocket_proxy_port"
+#define SECTION_WEBSOCKET_PROXY_SECURE "websocket_proxy_secure"
 #define SECTION_WEBSOCKET_PING_FREQ     "websocket_ping_frequency"
 #define SECTION_WEBSOCKET_IP            "websocket_ip"
 #define SECTION_WEBSOCKET_PORT          "websocket_port"

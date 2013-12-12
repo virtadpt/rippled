@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 #include "BeastConfig.h"
 
 #include "ripple_basics.h"
@@ -44,15 +43,13 @@
 
 //------------------------------------------------------------------------------
 
-namespace ripple
-{
+namespace ripple {
 
 #include "containers/RangeSet.cpp"
 #include "containers/TaggedCache.cpp"
 
 #include "log/Log.cpp"
 #include "log/LogFile.cpp"
-#include "log/LogJournal.cpp"
 #include "log/LogPartition.cpp"
 #include "log/LogSink.cpp"
 

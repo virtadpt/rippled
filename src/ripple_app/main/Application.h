@@ -17,11 +17,12 @@
 */
 //==============================================================================
 
-
 #ifndef RIPPLE_APP_APPLICATION_H_INCLUDED
 #define RIPPLE_APP_APPLICATION_H_INCLUDED
 
+namespace SiteFiles { class Manager; }
 namespace Validators { class Manager; }
+namespace Resource { class Manager; }
 namespace NodeStore { class Database; }
 namespace RPC { class Manager; }
 
@@ -78,6 +79,9 @@ public:
     virtual boost::asio::io_service& getIOService () = 0;
 
     virtual RPC::Manager&           getRPCServiceManager() = 0;
+
+    virtual JobQueue&               getJobQueue () = 0;
+    virtual SiteFiles::Manager&     getSiteFiles () = 0;
     virtual NodeCache&              getTempNodeCache () = 0;
     virtual SLECache&               getSLECache () = 0;
     virtual Validators::Manager&    getValidators () = 0;
@@ -91,7 +95,6 @@ public:
     virtual UniqueNodeList&         getUNL () = 0;
     virtual Validations&            getValidations () = 0;
     virtual NodeStore::Database&    getNodeStore () = 0;
-    virtual JobQueue&               getJobQueue () = 0;
     virtual InboundLedgers&         getInboundLedgers () = 0;
     virtual LedgerMaster&           getLedgerMaster () = 0;
     virtual NetworkOPs&             getOPs () = 0;
@@ -99,6 +102,7 @@ public:
     virtual TransactionMaster&      getMasterTransaction () = 0;
     virtual TxQueue&                getTxQueue () = 0;
     virtual LocalCredentials&       getLocalCredentials () = 0;
+    virtual Resource::Manager&      getResourceManager () = 0;
 
     virtual DatabaseCon* getRpcDB () = 0;
     virtual DatabaseCon* getTxnDB () = 0;

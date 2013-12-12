@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 #include "BeastConfig.h"
 
 #include "beast/modules/beast_core/system/BeforeBoost.h"
@@ -45,6 +44,8 @@ namespace ripple
 
 #include "consensus/LedgerConsensus.cpp"
 
+# include "ledger/LedgerCleaner.h"
+#include "ledger/LedgerCleaner.cpp"
 #include "ledger/LedgerMaster.cpp"
 
 }

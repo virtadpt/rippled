@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 SETUP_LOG (PaymentTransactor)
 
 #define RIPPLE_PATHS_MAX    6
@@ -204,6 +203,9 @@ TER PaymentTransactor::doApply ()
                               bNoRippleDirect,        // Always compute for finalizing ledger.
                               false,                  // Not standalone, delete unfundeds.
                               isSetBit (mParams, tapOPEN_LEDGER));
+
+	    if (terNO_LINE == terResult)
+	        terResult = tecPATH_DRY;
         }
         catch (const std::exception& e)
         {

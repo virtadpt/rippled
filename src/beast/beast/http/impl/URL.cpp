@@ -25,7 +25,6 @@ URL::URL ()
     : m_port (0)
 {
 }
-
 URL::URL (
     String scheme_,
     String host_,
@@ -129,7 +128,7 @@ String URL::userinfo () const
 
     foo://username:password@example.com:8042/over/there/index.dtb?type=animal&name=narwhal#nose
 */
-String URL::full () const
+String URL::toString () const
 {
     String s;
 
@@ -154,5 +153,25 @@ String URL::full () const
     return s;
 }
 
+std::string URL::to_string() const
+{
+    return toString().toStdString();
 }
 
+std::ostream& operator<< (std::ostream &os, URL const& url)
+{
+    os << url.to_string();
+    return os;
+}
+
+//------------------------------------------------------------------------------
+
+std::size_t hash_value (URL const& v)
+{
+    return std::size_t (v.toString().hash());
+}
+
+}
+
+
+// boost::hash support

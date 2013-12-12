@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 #ifndef RIPPLE_CORE_H_INCLUDED
 #define RIPPLE_CORE_H_INCLUDED
 
@@ -42,7 +41,6 @@ namespace ripple
 #  include "functional/LoadMonitor.h"
 # include "functional/Job.h"
 #include "functional/JobQueue.h"
-#include "functional/LoadSource.h"
 
 }
 

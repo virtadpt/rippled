@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 #ifndef RIPPLE_NET_BASICS_MULTISOCKET_H_INCLUDED
 #define RIPPLE_NET_BASICS_MULTISOCKET_H_INCLUDED
 
@@ -108,7 +107,8 @@ public:
     virtual IPAddress remote_endpoint() = 0;
     virtual ProxyInfo getProxyInfo () = 0;
 
-    virtual SSL* native_handle () = 0;
+    /** Returns a pointer to the SSL handle or nullptr if no SSL. */
+    virtual SSL* ssl_handle () = 0;
 
     static MultiSocket* New (
         boost::asio::io_service& io_service,

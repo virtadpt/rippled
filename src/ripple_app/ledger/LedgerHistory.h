@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 #ifndef RIPPLE_LEDGERHISTORY_H
 #define RIPPLE_LEDGERHISTORY_H
 
@@ -50,6 +49,8 @@ public:
 
     void builtLedger (Ledger::ref);
     void validatedLedger (Ledger::ref);
+
+    bool fixIndex(LedgerIndex ledgerIndex, LedgerHash const& ledgerHash);
 
 private:
     TaggedCacheType <LedgerHash, Ledger, UptimeTimerAdapter> mLedgersByHash;

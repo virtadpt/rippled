@@ -17,12 +17,10 @@
 */
 //==============================================================================
 
-
 #ifndef RIPPLE_NET_RPC_RPCSUB_H_INCLUDED
 #define RIPPLE_NET_RPC_RPCSUB_H_INCLUDED
 
-/** Subscription object for JSON RPC.
-*/
+/** Subscription object for JSON RPC. */
 class RPCSub : public InfoSub
 {
 public:

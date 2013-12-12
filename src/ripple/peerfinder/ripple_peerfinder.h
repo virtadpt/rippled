@@ -22,6 +22,8 @@
 
 #include "beast/modules/beast_core/beast_core.h"
 
+#include "../sitefiles/ripple_sitefiles.h"
+
 namespace ripple {
 using namespace beast;
 }

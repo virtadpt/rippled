@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 // VFALCO TODO Clean this global up
 static bool volatile doShutdown = false;
 
@@ -26,10 +25,12 @@ static bool volatile doShutdown = false;
 // Specializations for LogPartition names
 
 // VFALCO NOTE This is temporary, until I refactor LogPartition
-//            and LogJournal::get() to take a string
+//            and LogPartition::getJournal() to take a string
 //
 class ApplicationLog;
 template <> char const* LogPartition::getPartitionName <ApplicationLog> () { return "Application"; }
+class SiteFilesLog;
+template <> char const* LogPartition::getPartitionName <SiteFilesLog> () { return "SiteFiles"; }
 class ValidatorsLog;
 template <> char const* LogPartition::getPartitionName <ValidatorsLog> () { return "Validators"; }
 class JobQueueLog;
@@ -69,20 +70,20 @@ public:
 
     ApplicationImp ()
         : RootStoppable ("Application")
-        , m_journal (LogJournal::get <ApplicationLog> ())
+        , m_journal (LogPartition::getJournal <ApplicationLog> ())
         , m_tempNodeCache ("NodeCache", 16384, 90)
         , m_sleCache ("LedgerEntryCache", 4096, 120)
-        
+
         , m_resourceManager (add (Resource::Manager::New (
-            LogJournal::get <ResourceManagerLog> ())))
+            LogPartition::getJournal <ResourceManagerLog> ())))
 
         , m_rpcServiceManager (RPC::Manager::New (
-            LogJournal::get <RPCServiceManagerLog> ()))
+            LogPartition::getJournal <RPCServiceManagerLog> ()))
 
         // The JobQueue has to come pretty early since
         // almost everything is a Stoppable child of the JobQueue.
         //
-        , m_jobQueue (JobQueue::New (*this, LogJournal::get <JobQueueLog> ()))
+        , m_jobQueue (JobQueue::New (*this, LogPartition::getJournal <JobQueueLog> ()))
 
         // The io_service must be a child of the JobQueue since we call addJob
         // in response to newtwork data from peers and also client requests.
@@ -93,22 +94,26 @@ public:
         // Anything which calls addJob must be a descendant of the JobQueue
         //
 
+        , m_siteFiles (SiteFiles::Manager::New (
+            *this, LogPartition::getJournal <SiteFilesLog> ()))
+
         , m_orderBookDB (*m_jobQueue)
 
-        , m_ledgerMaster (*m_jobQueue)
+        , m_ledgerMaster (LedgerMaster::New (
+            *m_jobQueue, LogPartition::getJournal <LedgerMaster> ()))
 
         // VFALCO NOTE Does NetworkOPs depend on LedgerMaster?
         , m_networkOPs (NetworkOPs::New (
-            m_ledgerMaster, *m_jobQueue, LogJournal::get <NetworkOPsLog> ()))
+            *m_ledgerMaster, *m_jobQueue, LogPartition::getJournal <NetworkOPsLog> ()))
 
         // VFALCO NOTE LocalCredentials starts the deprecated UNL service
         , m_deprecatedUNL (UniqueNodeList::New (*m_jobQueue))
 
         , m_rpcHTTPServer (RPCHTTPServer::New (*m_networkOPs,
-            LogJournal::get <HTTPServerLog> (), *m_jobQueue, *m_networkOPs))
+            LogPartition::getJournal <HTTPServerLog> (), *m_jobQueue, *m_networkOPs, *m_resourceManager))
 
 #if ! RIPPLE_USE_RPC_SERVICE_MANAGER
-        , m_rpcServerHandler (*m_networkOPs) // passive object, not a Service
+        , m_rpcServerHandler (*m_networkOPs, *m_resourceManager) // passive object, not a Service
 #endif
 
         , m_nodeStoreScheduler (*m_jobQueue, *m_jobQueue)
@@ -123,13 +128,13 @@ public:
         , m_txQueue (TxQueue::New ())
 
         , m_validators (add (Validators::Manager::New (
-            *this, LogJournal::get <ValidatorsLog> ())))
+            *this, LogPartition::getJournal <ValidatorsLog> ())))
 
         , mFeatures (IFeatures::New (2 * 7 * 24 * 60 * 60, 200)) // two weeks, 200/256
 
         , mFeeVote (IFeeVote::New (10, 50 * SYSTEM_CURRENCY_PARTS, 12.5 * SYSTEM_CURRENCY_PARTS))
 
-        , mFeeTrack (LoadFeeTrack::New (LogJournal::get <LoadManagerLog> ()))
+        , mFeeTrack (LoadFeeTrack::New (LogPartition::getJournal <LoadManagerLog> ()))
 
         , mHashRouter (IHashRouter::New (IHashRouter::getDefaultHoldTime ()))
 
@@ -137,7 +142,7 @@ public:
 
         , mProofOfWorkFactory (ProofOfWorkFactory::New ())
 
-        , m_loadManager (LoadManager::New (*this, LogJournal::get <LoadManagerLog> ()))
+        , m_loadManager (LoadManager::New (*this, LogPartition::getJournal <LoadManagerLog> ()))
 
         , m_sweepTimer (this)
 
@@ -146,27 +151,33 @@ public:
         bassert (s_instance == nullptr);
         s_instance = this;
 
+        add (m_ledgerMaster->getPropertySource ());
+
         // VFALCO TODO remove these once the call is thread safe.
         HashMaps::getInstance ().initializeNonce <size_t> ();
     }
 
     ~ApplicationImp ()
     {
-        stop();
-        //stop ();
-
-        // Why is this needed here?
-        //m_networkOPs = nullptr;
-
         bassert (s_instance == this);
         s_instance = nullptr;
     }
 
     //--------------------------------------------------------------------------
-
+    
     RPC::Manager& getRPCServiceManager()
     {
         return *m_rpcServiceManager;
+    }
+
+    JobQueue& getJobQueue ()
+    {
+        return *m_jobQueue;
+    }
+
+    SiteFiles::Manager& getSiteFiles()
+    {
+        return *m_siteFiles;
     }
 
     LocalCredentials& getLocalCredentials ()
@@ -186,7 +197,7 @@ public:
 
     LedgerMaster& getLedgerMaster ()
     {
-        return m_ledgerMaster;
+        return *m_ledgerMaster;
     }
 
     InboundLedgers& getInboundLedgers ()
@@ -209,11 +220,6 @@ public:
         return *m_nodeStore;
     }
 
-    JobQueue& getJobQueue ()
-    {
-        return *m_jobQueue;
-    }
-
     Application::LockType& getMasterLock ()
     {
         return m_masterMutex;
@@ -222,6 +228,11 @@ public:
     LoadManager& getLoadManager ()
     {
         return *m_loadManager;
+    }
+
+    Resource::Manager& getResourceManager ()
+    {
+        return *m_resourceManager;
     }
 
     TxQueue& getTxQueue ()
@@ -387,6 +398,11 @@ public:
                 LogPartition::setSeverity (lsDEBUG);
         }
 
+        if (!getConfig().CONSOLE_LOG_OUTPUT.empty())
+        {
+            LogPartition::setConsoleOutput (getConfig().CONSOLE_LOG_OUTPUT);
+        }
+
         if (!getConfig ().RUN_STANDALONE)
             m_sntpClient->init (getConfig ().SNTP_SERVERS);
 
@@ -406,7 +422,7 @@ public:
         mFeatures->addInitialFeatures ();
         Pathfinder::initPathTable ();
 
-        m_ledgerMaster.setMinValidations (getConfig ().VALIDATION_QUORUM);
+        m_ledgerMaster->setMinValidations (getConfig ().VALIDATION_QUORUM);
 
         if (getConfig ().START_UP == Config::FRESH)
         {
@@ -453,7 +469,7 @@ public:
 
         mValidations->tune (getConfig ().getSize (siValidationsSize), getConfig ().getSize (siValidationsAge));
         m_nodeStore->tune (getConfig ().getSize (siNodeCacheSize), getConfig ().getSize (siNodeCacheAge));
-        m_ledgerMaster.tune (getConfig ().getSize (siLedgerSize), getConfig ().getSize (siLedgerAge));
+        m_ledgerMaster->tune (getConfig ().getSize (siLedgerSize), getConfig ().getSize (siLedgerAge));
         m_sleCache.setTargetSize (getConfig ().getSize (siSLECacheSize));
         m_sleCache.setTargetAge (getConfig ().getSize (siSLECacheAge));
 
@@ -477,7 +493,7 @@ public:
         //             the creation of the peer SSL context and Peers object into
         //             the conditional.
         //
-        m_peers = add (Peers::New (m_mainIoPool, *m_resourceManager,
+        m_peers = add (Peers::New (m_mainIoPool, *m_resourceManager, *m_siteFiles,
             m_mainIoPool, m_peerSSLContext->get ()));
 
         // If we're not in standalone mode,
@@ -533,7 +549,7 @@ public:
         {
             m_wsPrivateDoor = WSDoor::New (*m_resourceManager,
                 getOPs(), getConfig ().WEBSOCKET_IP,
-                    getConfig ().WEBSOCKET_PORT, false,
+                    getConfig ().WEBSOCKET_PORT, false, false,
                         m_wsSSLContext->get ());
 
             if (m_wsPrivateDoor == nullptr)
@@ -553,7 +569,7 @@ public:
         {
             m_wsPublicDoor = WSDoor::New (*m_resourceManager,
                 getOPs(), getConfig ().WEBSOCKET_PUBLIC_IP,
-                    getConfig ().WEBSOCKET_PUBLIC_PORT, true,
+                    getConfig ().WEBSOCKET_PUBLIC_PORT, true, false,
                         m_wsSSLContext->get ());
 
             if (m_wsPublicDoor == nullptr)
@@ -565,6 +581,19 @@ public:
         else
         {
             m_journal.info << "WebSocket public interface: disabled";
+        }
+        if (!getConfig ().WEBSOCKET_PROXY_IP.empty () && getConfig ().WEBSOCKET_PROXY_PORT)
+        {
+            m_wsProxyDoor = WSDoor::New (*m_resourceManager,
+                getOPs(), getConfig ().WEBSOCKET_PROXY_IP,
+                    getConfig ().WEBSOCKET_PROXY_PORT, true, true,
+                        m_wsSSLContext->get ());
+
+            if (m_wsProxyDoor == nullptr)
+            {
+                FatalError ("Could not open the WebSocket public interface.",
+                    __FILE__, __LINE__);
+            }
         }
 
         //
@@ -740,6 +769,7 @@ public:
             // once the WSDoor cancels its pending I/O correctly
             //m_wsPublicDoor = nullptr;
             //m_wsPrivateDoor = nullptr;
+            //m_wsProxyDoor = nullptr;
 
             // VFALCO TODO Try to not have to do this early, by using observers to
             //             eliminate LoadManager's dependency inversions.
@@ -806,7 +836,7 @@ public:
             &NodeStore::Database::sweep, m_nodeStore.get ()));
 
         logTimedCall (m_journal.warning, "LedgerMaster::sweep", __FILE__, __LINE__, boost::bind (
-            &LedgerMaster::sweep, &m_ledgerMaster));
+            &LedgerMaster::sweep, m_ledgerMaster.get()));
 
         logTimedCall (m_journal.warning, "TempNodeCache::sweep", __FILE__, __LINE__, boost::bind (
             &NodeCache::sweep, &m_tempNodeCache));
@@ -850,15 +880,16 @@ private:
     SLECache m_sleCache;
     LocalCredentials m_localCredentials;
     TransactionMaster m_txMaster;
-    
+
     ScopedPointer <Resource::Manager> m_resourceManager;
     ScopedPointer <RPC::Manager> m_rpcServiceManager;
 
     // These are Stoppable-related
     ScopedPointer <JobQueue> m_jobQueue;
     IoServicePool m_mainIoPool;
+    ScopedPointer <SiteFiles::Manager> m_siteFiles;
     OrderBookDB m_orderBookDB;
-    LedgerMaster m_ledgerMaster;
+    ScopedPointer <LedgerMaster> m_ledgerMaster;
     ScopedPointer <NetworkOPs> m_networkOPs;
     ScopedPointer <UniqueNodeList> m_deprecatedUNL;
     ScopedPointer <RPCHTTPServer> m_rpcHTTPServer;
@@ -893,6 +924,7 @@ private:
     ScopedPointer <RPCDoor>  m_rpcDoor;
     ScopedPointer <WSDoor> m_wsPublicDoor;
     ScopedPointer <WSDoor> m_wsPrivateDoor;
+    ScopedPointer <WSDoor> m_wsProxyDoor;
 
     WaitableEvent m_stop;
 };
@@ -918,12 +950,12 @@ void ApplicationImp::startNewLedger ()
         firstLedger->updateHash ();
         firstLedger->setClosed ();
         firstLedger->setAccepted ();
-        m_ledgerMaster.pushLedger (firstLedger);
+        m_ledgerMaster->pushLedger (firstLedger);
 
         Ledger::pointer secondLedger = boost::make_shared<Ledger> (true, boost::ref (*firstLedger));
         secondLedger->setClosed ();
         secondLedger->setAccepted ();
-        m_ledgerMaster.pushLedger (secondLedger, boost::make_shared<Ledger> (true, boost::ref (*secondLedger)));
+        m_ledgerMaster->pushLedger (secondLedger, boost::make_shared<Ledger> (true, boost::ref (*secondLedger)));
         assert (!!secondLedger->getAccountState (rootAddress));
         m_networkOPs->setLastCloseTime (secondLedger->getCloseTimeNC ());
     }
@@ -988,11 +1020,11 @@ bool ApplicationImp::loadOldLedger (const std::string& l, bool bReplay)
             return false;
         }
 
-        m_ledgerMaster.setLedgerRangePresent (loadLedger->getLedgerSeq (), loadLedger->getLedgerSeq ());
+        m_ledgerMaster->setLedgerRangePresent (loadLedger->getLedgerSeq (), loadLedger->getLedgerSeq ());
 
         Ledger::pointer openLedger = boost::make_shared<Ledger> (false, boost::ref (*loadLedger));
-        m_ledgerMaster.switchLedgers (loadLedger, openLedger);
-        m_ledgerMaster.forceValid(loadLedger);
+        m_ledgerMaster->switchLedgers (loadLedger, openLedger);
+        m_ledgerMaster->forceValid(loadLedger);
         m_networkOPs->setLastCloseTime (loadLedger->getCloseTimeNC ());
 
         if (bReplay)
@@ -1195,7 +1227,7 @@ void ApplicationImp::updateTables ()
         exit (1);
     }
 
-    if (getConfig ().importNodeDatabase.size () > 0)
+    if (getConfig ().doImport)
     {
         NodeStore::DummyScheduler scheduler;
         ScopedPointer <NodeStore::Database> source (NodeStore::Database::New (

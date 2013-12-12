@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 #ifndef RIPPLE_PATHREQUEST_H
 #define RIPPLE_PATHREQUEST_H
 
@@ -46,6 +45,7 @@ public:
 public:
     // VFALCO TODO Break the cyclic dependency on InfoSub
     explicit PathRequest (boost::shared_ptr <InfoSub> const& subscriber);
+    ~PathRequest ();
 
     bool        isValid (const boost::shared_ptr<Ledger>&);
     bool        isValid ();
@@ -58,10 +58,11 @@ public:
 
     bool        doUpdate (const boost::shared_ptr<RippleLineCache>&, bool fast); // update jvStatus
 
-    static void updateAll (const boost::shared_ptr<Ledger>& ledger, bool newOnly, CancelCallback shouldCancel);
+    static void updateAll (const boost::shared_ptr<Ledger>& ledger, bool newOnly, bool hasNew, CancelCallback shouldCancel);
 
 private:
     void setValid ();
+    void resetLevel (int level);
     int parseJson (const Json::Value&, bool complete);
 
     typedef RippleRecursiveMutex LockType;
@@ -85,6 +86,9 @@ private:
 
     int                             iLastLevel;
     bool                            bLastSuccess;
+
+    int                             iIdentifier;
+    static Atomic<int>              siLastIdentifier;
 
     // Track all requests
     static std::set<wptr>           sRequests;

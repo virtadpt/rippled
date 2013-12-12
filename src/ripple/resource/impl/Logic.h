@@ -62,15 +62,6 @@ public:
         : m_clock (source)
         , m_journal (journal)
     {
-#if 0
-#if BEAST_MSVC
-        if (beast_isRunningUnderDebugger())
-        {
-            m_journal.sink().set_console (true);
-            m_journal.sink().set_severity (Journal::kLowestSeverity);
-        }
-#endif
-#endif
     }
 
     virtual ~Logic ()
@@ -92,7 +83,7 @@ public:
 
         Key key;
         key.kind = kindInbound;
-        key.address = address;
+        key.address = address.withPort (0);
 
         Entry* entry (nullptr);
 
@@ -112,7 +103,8 @@ public:
             }
         }
 
-        m_journal.debug << "New inbound endpoint " << entry->label();
+        m_journal.debug <<
+            "New inbound endpoint " << *entry;
 
         return Consumer (*this, *entry);
     }
@@ -144,7 +136,8 @@ public:
             }
         }
 
-        m_journal.debug << "New outbound endpoint " << entry->label();
+        m_journal.debug <<
+            "New outbound endpoint " << *entry;
 
         return Consumer (*this, *entry);
     }
@@ -173,7 +166,8 @@ public:
             }
         }
 
-        m_journal.debug << "New admin endpoint " << entry->label();
+        m_journal.debug <<
+            "New admin endpoint " << *entry;
 
         return Consumer (*this, *entry);
     }
@@ -184,7 +178,7 @@ public:
         key.kind = kindAdmin;
         key.name = name;
 
-        m_journal.info << "Elevate " << prior.label() << " to " << name;
+        m_journal.info << "Elevate " << prior << " to " << name;
 
         Entry* entry (nullptr);
 
@@ -209,6 +203,61 @@ public:
         }
 
         return *entry;
+    }
+
+    Json::Value getJson ()
+    {
+        return getJson (warningThreshold);
+    }
+
+    Json::Value getJson (int threshold)
+    {
+        DiscreteTime const now (m_clock());
+
+        Json::Value ret (Json::objectValue);
+        SharedState::Access state (m_state);
+
+        for (List <Entry>::iterator iter (state->inbound.begin());
+            iter != state->inbound.end(); ++iter)
+        {
+            int localBalance = iter->local_balance.value (now);
+            if ((localBalance + iter->remote_balance) >= threshold)
+            {
+                Json::Value& entry = (ret[iter->to_string()] = Json::objectValue);
+                entry["local"] = localBalance;
+                entry["remote"] = iter->remote_balance;
+                entry["type"] = "outbound";
+            }
+
+        }
+        for (List <Entry>::iterator iter (state->outbound.begin());
+            iter != state->outbound.end(); ++iter)
+        {
+            int localBalance = iter->local_balance.value (now);
+            if ((localBalance + iter->remote_balance) >= threshold)
+            {
+                Json::Value& entry = (ret[iter->to_string()] = Json::objectValue);
+                entry["local"] = localBalance;
+                entry["remote"] = iter->remote_balance;
+                entry["type"] = "outbound";
+            }
+
+        }
+        for (List <Entry>::iterator iter (state->admin.begin());
+            iter != state->admin.end(); ++iter)
+        {
+            int localBalance = iter->local_balance.value (now);
+            if ((localBalance + iter->remote_balance) >= threshold)
+            {
+                Json::Value& entry = (ret[iter->to_string()] = Json::objectValue);
+                entry["local"] = localBalance;
+                entry["remote"] = iter->remote_balance;
+                entry["type"] = "admin";
+            }
+
+        }
+
+        return ret;
     }
 
     Gossip exportConsumers ()
@@ -315,7 +364,7 @@ public:
         {
             if (iter->whenExpires <= now)
             {
-                m_journal.debug << "Expired " << iter->label();
+                m_journal.debug << "Expired " << *iter;
                 Table::iterator table_iter (
                     state->table.find (*iter->key));
                 ++iter;
@@ -327,8 +376,8 @@ public:
             }
         }
 
-        for (Imports::iterator iter (state->import_table.begin());
-            iter != state->import_table.end(); ++iter)
+        Imports::iterator iter (state->import_table.begin());
+        while (iter != state->import_table.end())
         {
             Import& import (iter->second);
             if (iter->second.whenExpires <= now)
@@ -341,6 +390,8 @@ public:
 
                 iter = state->import_table.erase (iter);
             }
+            else
+                ++iter;
         }
     }
 
@@ -367,7 +418,9 @@ public:
     {
         if (--entry.refcount == 0)
         {
-            m_journal.debug << "Inactive " << entry.label();
+            m_journal.debug <<
+                "Inactive " << entry;
+
             switch (entry.key->kind)
             {
             case kindInbound:
@@ -404,7 +457,8 @@ public:
     {
         DiscreteTime const now (m_clock());
         int const balance (entry.add (fee.cost(), now));
-        m_journal.info << "Charging " << entry.label() << " for " << fee;
+        m_journal.info <<
+            "Charging " << entry << " for " << fee;
         return disposition (balance);
     }
 
@@ -420,7 +474,8 @@ public:
         }
 
         if (notify)
-            m_journal.info << "Load warning: " << entry.label();
+            m_journal.info <<
+                "Load warning: " << entry;
 
         return notify;
     }
@@ -499,7 +554,7 @@ public:
             PropertyStream::Map item (items);
             if (iter->refcount != 0)
                 item ["count"] = iter->refcount;
-            item ["name"] = iter->label();
+            item ["name"] = iter->to_string();
             item ["balance"] = iter->balance(now);
             if (iter->remote_balance != 0)
                 item ["remote_balance"] = iter->remote_balance;

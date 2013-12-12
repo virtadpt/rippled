@@ -158,15 +158,6 @@ public:
         , m_checkTimer (this)
         , m_checkSources (false)
     {
-#if 0
-#if BEAST_MSVC
-        if (beast_isRunningUnderDebugger())
-        {
-            m_journal.sink().set_console (true);
-            m_journal.sink().set_severity (Journal::kLowestSeverity);
-        }
-#endif
-#endif
     }
 
     ~ManagerImp ()
@@ -178,6 +169,7 @@ public:
     //
     // Manager
     //
+    //--------------------------------------------------------------------------
 
     void addStrings (String name, std::vector <std::string> const& strings)
     {
@@ -254,6 +246,7 @@ public:
     //
     // Stoppable
     //
+    //--------------------------------------------------------------------------
 
     void onPrepare ()
     {
@@ -299,6 +292,7 @@ public:
     //
     // PropertyStream
     //
+    //--------------------------------------------------------------------------
 
     void onWrite (PropertyStream::Map& map)
     {
@@ -328,6 +322,7 @@ public:
     //
     // ManagerImp
     //
+    //--------------------------------------------------------------------------
 
     void init ()
     {

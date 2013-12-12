@@ -20,11 +20,15 @@
 #ifndef RIPPLE_PEERS_H_INCLUDED
 #define RIPPLE_PEERS_H_INCLUDED
 
+namespace PeerFinder {
+class Manager;
+}
+
 namespace Resource {
 class Manager;
 }
 
-namespace PeerFinder {
+namespace SiteFiles {
 class Manager;
 }
 
@@ -34,6 +38,7 @@ class Peers : public PropertyStream::Source
 public:
     static Peers* New (Stoppable& parent,
         Resource::Manager& resourceManager,
+            SiteFiles::Manager& siteFiles,
             boost::asio::io_service& io_service,
                 boost::asio::ssl::context& context);
 
@@ -62,9 +67,13 @@ public:
     virtual bool getTopNAddrs (int n, std::vector<std::string>& addrs) = 0;
     virtual bool savePeer (const std::string& strIp, int iPort, char code) = 0;
 
+    // A peer connection has been established, but we know nothing about it at
+    // this point beyond the IP address.
+    virtual void peerConnected (const IPAddress& address, bool incoming) = 0;
+
     // We know peers node public key.
     // <-- bool: false=reject
-    virtual bool peerConnected (Peer::ref peer, const RippleAddress& naPeer, const std::string& strIP, int iPort) = 0;
+    virtual bool peerHandshake (Peer::ref peer, const RippleAddress& naPeer, const std::string& strIP, int iPort) = 0;
 
     // No longer connected.
     virtual void peerDisconnected (Peer::ref peer, const RippleAddress& naPeer) = 0;

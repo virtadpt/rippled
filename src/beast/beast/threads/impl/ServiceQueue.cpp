@@ -23,10 +23,6 @@
 
 namespace beast {
 
-namespace detail {
-
-//------------------------------------------------------------------------------
-
 class ServiceQueueBase::ScopedServiceThread : public List <ScopedServiceThread>::Node
 {
 public:
@@ -183,18 +179,21 @@ void ServiceQueueBase::enqueue (Item* item)
         waiter->signal();
 }
 
+bool ServiceQueueBase::empty()
+{
+    SharedState::Access state (m_state);
+    return state->handlers.empty();
+}
+
 // A thread can only be blocked on one ServiceQueue so we store the pointer
 // to which ServiceQueue it is blocked on to determine if the thread belongs
 // to that queue.
 //
 ThreadLocalValue <ServiceQueueBase*> ServiceQueueBase::s_service;
 
-}
-
 //------------------------------------------------------------------------------
 
-namespace detail
-{
+namespace detail {
 
 //------------------------------------------------------------------------------
 

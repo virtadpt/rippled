@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 #ifndef RIPPLE_NET_BASICS_IMPOL_MULTISOCKETTYPE_H_INCLUDED
 #define RIPPLE_NET_BASICS_IMPOL_MULTISOCKETTYPE_H_INCLUDED
 
@@ -125,9 +124,8 @@ protected:
         return m_proxyInfo;
     }
 
-    SSL* native_handle ()
+    SSL* ssl_handle ()
     {
-        bassert (m_native_ssl_handle != nullptr);
         return m_native_ssl_handle;
     }
 
@@ -891,7 +889,7 @@ protected:
         {
             error_code ec (ec_);
 
-            do
+            while (!ec)
             {
                 if (m_owner.m_state == stateReady)
                 {
@@ -975,7 +973,6 @@ protected:
                     ec = m_owner.handshake_error ();
                 }
             }
-            while (! ec);
 
             bassert (ec || (m_owner.m_state == stateReady && m_owner.m_needsShutdown));
 

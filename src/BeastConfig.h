@@ -107,6 +107,13 @@
 #define BEAST_ZLIB_INCLUDE_PATH <zlib.h>
 #endif
 
+/** Config: BEAST_SQLITE_FORCE_NDEBUG
+    Setting this option forces sqlite into release mode even if NDEBUG is not set
+*/
+#ifndef BEAST_SQLITE_FORCE_NDEBUG
+#define BEAST_SQLITE_FORCE_NDEBUG 1
+#endif
+
 //------------------------------------------------------------------------------
 //
 // Boost
@@ -168,7 +175,7 @@
 // messages as needed, and collect legacy IP endpoint information.
 //
 #ifndef RIPPLE_USE_PEERFINDER
-#define RIPPLE_USE_PEERFINDER 1
+#define RIPPLE_USE_PEERFINDER 0
 #endif
 
 // Here temporarily
@@ -176,13 +183,6 @@
 // used to invoke RPC commands before they pass to the original code.
 #ifndef  RIPPLE_USE_RPC_SERVICE_MANAGER
 #define  RIPPLE_USE_RPC_SERVICE_MANAGER 0
-#endif
-
-// Here temporarily
-// Controls whether or not the new Resource manager replaces the BlackList
-// and LoadManager for measuring and controlling access to the server
-#ifndef RIPPLE_USE_RESOURCE_MANAGER
-#define RIPPLE_USE_RESOURCE_MANAGER 0
 #endif
 
 #endif

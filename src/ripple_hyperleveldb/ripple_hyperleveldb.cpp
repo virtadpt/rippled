@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 // Unity build file for LevelDB
 
 #include "BeastConfig.h"
@@ -52,6 +51,11 @@
 #pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 #endif
 
+// Compile HyperLevelDB without debugging unless specifically requested
+#if !defined (NDEBUG) && !defined (RIPPLE_DEBUG_HYPERLEVELDB)
+#define NDEBUG
+#endif
+
 #include "hyperleveldb/db/builder.cc"
 #include "hyperleveldb/db/db_impl.cc"
 #include "hyperleveldb/db/db_iter.cc"
@@ -61,6 +65,7 @@
 #include "hyperleveldb/db/log_writer.cc"
 #include "hyperleveldb/db/memtable.cc"
 #include "hyperleveldb/db/repair.cc"
+#include "hyperleveldb/db/replay_iterator.cc"
 #include "hyperleveldb/db/table_cache.cc"
 #include "hyperleveldb/db/version_edit.cc"
 #include "hyperleveldb/db/version_set.cc"

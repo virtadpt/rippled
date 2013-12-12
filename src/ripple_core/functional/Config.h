@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 #ifndef RIPPLE_CORE_CONFIG_H_INCLUDED
 #define RIPPLE_CORE_CONFIG_H_INCLUDED
 
@@ -326,6 +325,7 @@ public:
             <key>'='<value>['|'<key>'='value]
         @see parseDelimitedKeyValueString
     */
+    bool doImport;
     StringPairArray importNodeDatabase;
 
     //
@@ -337,6 +337,7 @@ public:
     bool                        TESTNET;
 
     boost::filesystem::path     DEBUG_LOGFILE;
+    std::string                 CONSOLE_LOG_OUTPUT;
 
     bool                        ELB_SUPPORT;            // Support Amazon ELB
 
@@ -401,6 +402,10 @@ public:
     std::string                 WEBSOCKET_PUBLIC_IP;        // XXX Going away. Merge with the inbound peer connction.
     int                         WEBSOCKET_PUBLIC_PORT;
     int                         WEBSOCKET_PUBLIC_SECURE;
+
+    std::string                 WEBSOCKET_PROXY_IP;        // XXX Going away. Merge with the inbound peer connction.
+    int                         WEBSOCKET_PROXY_PORT;
+    int                         WEBSOCKET_PROXY_SECURE;
 
     std::string                 WEBSOCKET_IP;
     int                         WEBSOCKET_PORT;

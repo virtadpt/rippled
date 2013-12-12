@@ -172,7 +172,8 @@ Json::Value RPCHandler::transactionSign (Json::Value params, bool bSubmit, bool 
                 Pathfinder pf (cache, raSrcAddressID, dstAccountID,
                                saSendMax.getCurrency (), saSendMax.getIssuer (), saSend, bValid);
 
-                if (!bValid || !pf.findPaths (getConfig ().PATH_SEARCH_OLD, 4, spsPaths))
+                STPath extraPath;
+                if (!bValid || !pf.findPaths (getConfig ().PATH_SEARCH_OLD, 4, spsPaths, extraPath))
                 {
                     WriteLog (lsDEBUG, RPCHandler) << "transactionSign: build_path: No paths found.";
 
@@ -574,6 +575,65 @@ Json::Value RPCHandler::accountFromString (Ledger::ref lrLedger, RippleAddress& 
     return Json::Value (Json::objectValue);
 }
 
+Json::Value RPCHandler::doAccountCurrencies (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
+{
+    Ledger::pointer     lpLedger;
+    Json::Value         jvResult    = lookupLedger (params, lpLedger);
+
+    if (!lpLedger)
+        return jvResult;
+    if (lpLedger->isImmutable ())
+        masterLockHolder.unlock ();
+
+    if (!params.isMember ("account") && !params.isMember ("ident"))
+        return rpcError (rpcINVALID_PARAMS);
+
+    std::string     strIdent    = params.isMember ("account") ? params["account"].asString () : params["ident"].asString ();
+    bool            bIndex;
+    int             iIndex      = params.isMember ("account_index") ? params["account_index"].asUInt () : 0;
+    bool            bStrict     = params.isMember ("strict") && params["strict"].asBool ();
+    RippleAddress   naAccount;
+
+    // Get info on account.
+
+    Json::Value     jvAccepted      = accountFromString (lpLedger, naAccount, bIndex, strIdent, iIndex, bStrict);
+
+    if (!jvAccepted.empty ())
+        return jvAccepted;
+
+    std::set<uint160> send, receive;
+    AccountItems rippleLines (naAccount.getAccountID (), lpLedger, AccountItem::pointer (new RippleState ()));
+    BOOST_FOREACH(AccountItem::ref item, rippleLines.getItems ())
+    {
+        RippleState* rspEntry = (RippleState*) item.get ();
+        const STAmount& saBalance = rspEntry->getBalance ();
+
+        if (saBalance < rspEntry->getLimit ())
+            receive.insert (saBalance.getCurrency ());
+        if ((-saBalance) < rspEntry->getLimitPeer ())
+            send.insert (saBalance.getCurrency ());
+    }
+
+
+    send.erase (CURRENCY_BAD);
+    receive.erase (CURRENCY_BAD);
+
+    Json::Value& sendCurrencies = (jvResult["send_currencies"] = Json::arrayValue);
+    BOOST_FOREACH(uint160 const& c, send)
+    {
+        sendCurrencies.append (STAmount::createHumanCurrency (c));
+    }
+
+    Json::Value& recvCurrencies = (jvResult["receive_currencies"] = Json::arrayValue);
+    BOOST_FOREACH(uint160 const& c, receive)
+    {
+        recvCurrencies.append (STAmount::createHumanCurrency (c));
+    }
+    
+
+    return jvResult;
+}
+
 // {
 //   account: <indent>,
 //   account_index : <index> // optional
@@ -581,7 +641,7 @@ Json::Value RPCHandler::accountFromString (Ledger::ref lrLedger, RippleAddress& 
 //   ledger_hash : <ledger>
 //   ledger_index : <ledger_index>
 // }
-Json::Value RPCHandler::doAccountInfo (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doAccountInfo (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Ledger::pointer     lpLedger;
     Json::Value         jvResult    = lookupLedger (params, lpLedger);
@@ -622,13 +682,13 @@ Json::Value RPCHandler::doAccountInfo (Json::Value params, LoadType* loadType, A
     return jvResult;
 }
 
-Json::Value RPCHandler::doBlackList (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doBlackList (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     masterLockHolder.unlock();
     if (params.isMember("threshold"))
-        return getApp().getLoadManager().getBlackList(params["threshold"].asInt());
+        return getApp().getResourceManager().getJson(params["threshold"].asInt());
     else
-        return getApp().getLoadManager().getBlackList();
+        return getApp().getResourceManager().getJson();
 }
 
 // {
@@ -636,7 +696,7 @@ Json::Value RPCHandler::doBlackList (Json::Value params, LoadType* loadType, App
 //   port: <number>
 // }
 // XXX Might allow domain for manual connections.
-Json::Value RPCHandler::doConnect (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doConnect (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     if (getConfig ().RUN_STANDALONE)
         return "cannot connect in standalone mode";
@@ -657,7 +717,7 @@ Json::Value RPCHandler::doConnect (Json::Value params, LoadType* loadType, Appli
 // {
 //   key: <string>
 // }
-Json::Value RPCHandler::doDataDelete (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doDataDelete (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     if (!params.isMember ("key"))
         return rpcError (rpcINVALID_PARAMS);
@@ -683,7 +743,7 @@ Json::Value RPCHandler::doDataDelete (Json::Value params, LoadType* loadType, Ap
 // {
 //   key: <string>
 // }
-Json::Value RPCHandler::doDataFetch (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doDataFetch (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     if (!params.isMember ("key"))
         return rpcError (rpcINVALID_PARAMS);
@@ -707,7 +767,7 @@ Json::Value RPCHandler::doDataFetch (Json::Value params, LoadType* loadType, App
 //   key: <string>
 //   value: <string>
 // }
-Json::Value RPCHandler::doDataStore (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doDataStore (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     if (!params.isMember ("key")
             || !params.isMember ("value"))
@@ -768,7 +828,7 @@ Json::Value RPCHandler::doNicknameInfo (Json::Value params)
 //   'account_index' : <index> // optional
 // }
 // XXX This would be better if it took the ledger.
-Json::Value RPCHandler::doOwnerInfo (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doOwnerInfo (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     if (!params.isMember ("account") && !params.isMember ("ident"))
         return rpcError (rpcINVALID_PARAMS);
@@ -793,7 +853,7 @@ Json::Value RPCHandler::doOwnerInfo (Json::Value params, LoadType* loadType, App
     return ret;
 }
 
-Json::Value RPCHandler::doPeers (Json::Value, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doPeers (Json::Value, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Json::Value jvResult (Json::objectValue);
 
@@ -804,12 +864,12 @@ Json::Value RPCHandler::doPeers (Json::Value, LoadType* loadType, Application::S
     return jvResult;
 }
 
-Json::Value RPCHandler::doPing (Json::Value, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doPing (Json::Value, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     return Json::Value (Json::objectValue);
 }
 
-Json::Value RPCHandler::doPrint (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doPrint (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     masterLockHolder.unlock ();
 
@@ -827,7 +887,7 @@ Json::Value RPCHandler::doPrint (Json::Value params, LoadType* loadType, Applica
 // issuer is the offering account
 // --> submit: 'submit|true|false': defaults to false
 // Prior to running allow each to have a credit line of what they will be getting from the other account.
-Json::Value RPCHandler::doProfile (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doProfile (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     /* need to fix now that sharedOfferCreate is gone
     int             iArgs   = params.size();
@@ -919,7 +979,7 @@ Json::Value RPCHandler::doProfile (Json::Value params, LoadType* loadType, Appli
 //   difficulty: <number>       // optional
 //   secret: <secret>           // optional
 // }
-Json::Value RPCHandler::doProofCreate (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doProofCreate (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     masterLockHolder.unlock ();
     // XXX: Add ability to create proof with arbitrary time
@@ -964,7 +1024,7 @@ Json::Value RPCHandler::doProofCreate (Json::Value params, LoadType* loadType, A
 // {
 //   token: <token>
 // }
-Json::Value RPCHandler::doProofSolve (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doProofSolve (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     masterLockHolder.unlock ();
 
@@ -994,7 +1054,7 @@ Json::Value RPCHandler::doProofSolve (Json::Value params, LoadType* loadType, Ap
 //   difficulty: <number>       // optional
 //   secret: <secret>           // optional
 // }
-Json::Value RPCHandler::doProofVerify (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doProofVerify (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     masterLockHolder.unlock ();
     // XXX Add ability to check proof against arbitrary time
@@ -1064,7 +1124,7 @@ Json::Value RPCHandler::doProofVerify (Json::Value params, LoadType* loadType, A
 //   ledger_hash : <ledger>
 //   ledger_index : <ledger_index>
 // }
-Json::Value RPCHandler::doAccountLines (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doAccountLines (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Ledger::pointer     lpLedger;
     Json::Value         jvResult    = lookupLedger (params, lpLedger);
@@ -1115,10 +1175,13 @@ Json::Value RPCHandler::doAccountLines (Json::Value params, LoadType* loadType, 
 
     if (lpLedger->hasAccount (raAccount))
     {
+        AccountItems rippleLines (raAccount.getAccountID (), lpLedger, AccountItem::pointer (new RippleState ()));
+        if (!bUnlocked)
+            masterLockHolder.unlock ();
+
         jvResult["account"] = raAccount.humanAccountID ();
         Json::Value& jsonLines = (jvResult["lines"] = Json::arrayValue);
 
-        AccountItems rippleLines (raAccount.getAccountID (), lpLedger, AccountItem::pointer (new RippleState ()));
 
         BOOST_FOREACH (AccountItem::ref item, rippleLines.getItems ())
         {
@@ -1152,8 +1215,7 @@ Json::Value RPCHandler::doAccountLines (Json::Value params, LoadType* loadType, 
             }
         }
 
-        if (!bUnlocked)
-            masterLockHolder.unlock ();
+        loadType = Resource::feeMediumBurdenRPC;
     }
     else
     {
@@ -1181,7 +1243,7 @@ static void offerAdder (Json::Value& jvLines, SLE::ref offer)
 //   ledger_hash : <ledger>
 //   ledger_index : <ledger_index>
 // }
-Json::Value RPCHandler::doAccountOffers (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doAccountOffers (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Ledger::pointer     lpLedger;
     Json::Value         jvResult    = lookupLedger (params, lpLedger);
@@ -1226,6 +1288,7 @@ Json::Value RPCHandler::doAccountOffers (Json::Value params, LoadType* loadType,
 
     if (!bUnlocked)
         masterLockHolder.unlock ();
+    loadType = Resource::feeMediumBurdenRPC;
 
     return jvResult;
 }
@@ -1240,7 +1303,7 @@ Json::Value RPCHandler::doAccountOffers (Json::Value params, LoadType* loadType,
 //   "limit" : integer,                  // Optional.
 //   "proof" : boolean                   // Defaults to false.
 // }
-Json::Value RPCHandler::doBookOffers (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doBookOffers (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     if (getApp().getJobQueue ().getJobCountGE (jtCLIENT) > 200)
     {
@@ -1333,6 +1396,7 @@ Json::Value RPCHandler::doBookOffers (Json::Value params, LoadType* loadType, Ap
     const Json::Value   jvMarker    = params.isMember ("marker") ? params["marker"] : Json::Value (Json::nullValue);
 
     mNetOps->getBookPage (lpLedger, uTakerPaysCurrencyID, uTakerPaysIssuerID, uTakerGetsCurrencyID, uTakerGetsIssuerID, raTakerID.getAccountID (), bProof, iLimit, jvMarker, jvResult);
+    loadType = Resource::feeMediumBurdenRPC;
 
     return jvResult;
 }
@@ -1341,7 +1405,7 @@ Json::Value RPCHandler::doBookOffers (Json::Value params, LoadType* loadType, Ap
 // {
 //   random: <uint256>
 // }
-Json::Value RPCHandler::doRandom (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doRandom (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     masterLockHolder.unlock ();
     uint256         uRandom;
@@ -1362,7 +1426,7 @@ Json::Value RPCHandler::doRandom (Json::Value params, LoadType* loadType, Applic
     }
 }
 
-Json::Value RPCHandler::doPathFind (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doPathFind (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Ledger::pointer lpLedger = mNetOps->getClosedLedger();
     masterLockHolder.unlock();
@@ -1377,6 +1441,7 @@ Json::Value RPCHandler::doPathFind (Json::Value params, LoadType* loadType, Appl
 
     if (sSubCommand == "create")
     {
+        loadType = Resource::feeHighBurdenRPC;
         mInfoSub->clearPathRequest ();
         PathRequest::pointer request = boost::make_shared<PathRequest> (mInfoSub);
         Json::Value result = request->doCreate (lpLedger, params);
@@ -1420,7 +1485,7 @@ Json::Value RPCHandler::doPathFind (Json::Value params, LoadType* loadType, Appl
 //   - Allows clients to verify path exists.
 // - Return canonicalized path.
 //   - From a trusted server, allows clients to use path without manipulation.
-Json::Value RPCHandler::doRipplePathFind (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doRipplePathFind (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     int jc = getApp().getJobQueue ().getJobCountGE (jtCLIENT);
 
@@ -1429,6 +1494,7 @@ Json::Value RPCHandler::doRipplePathFind (Json::Value params, LoadType* loadType
         WriteLog (lsDEBUG, RPCHandler) << "Too busy for RPF: " << jc;
         return rpcError (rpcTOO_BUSY);
     }
+    loadType = Resource::feeHighBurdenRPC;
 
     RippleAddress   raSrc;
     RippleAddress   raDst;
@@ -1501,7 +1567,7 @@ Json::Value RPCHandler::doRipplePathFind (Json::Value params, LoadType* loadType
             }
         }
 
-        *loadType = LT_RPCBurden;
+        loadType = Resource::feeHighBurdenRPC;
         Ledger::pointer lSnapShot = boost::make_shared<Ledger> (boost::ref (*lpLedger), false);
 
         masterLockHolder.unlock (); // As long as we have a locked copy of the ledger, we can unlock.
@@ -1560,7 +1626,8 @@ Json::Value RPCHandler::doRipplePathFind (Json::Value params, LoadType* loadType
             int level = getConfig().PATH_SEARCH_OLD;
             if ((getConfig().PATH_SEARCH_MAX > level) && !getApp().getFeeTrack().isLoadedLocal())
                 ++level;
-            if (!bValid || !pf.findPaths (level, 4, spsComputed))
+	    STPath extraPath;
+            if (!bValid || !pf.findPaths (level, 4, spsComputed, extraPath))
             {
                 WriteLog (lsWARNING, RPCHandler) << "ripple_path_find: No paths found.";
             }
@@ -1607,6 +1674,18 @@ Json::Value RPCHandler::doRipplePathFind (Json::Value params, LoadType* loadType
                                        % saDstAmount
                                        % saMaxAmountAct
                                        % saDstAmountAct);
+
+                if ((extraPath.size() > 0) && ((terResult == terNO_LINE) || (terResult == tecPATH_PARTIAL)))
+                {
+                    WriteLog (lsDEBUG, PathRequest) << "Trying with an extra path element";
+                    spsComputed.addPath(extraPath);
+                    vpsExpanded.clear ();
+                    terResult = RippleCalc::rippleCalc (lesSandbox, saMaxAmountAct, saDstAmountAct,
+                                                        vpsExpanded, saMaxAmount, saDstAmount,
+                                                        raDst.getAccountID (), raSrc.getAccountID (),
+                                                        spsComputed, false, false, false, true);
+                    WriteLog (lsDEBUG, PathRequest) << "Extra path element gives " << transHuman (terResult);
+                }
 
                 if (tesSUCCESS == terResult)
                 {
@@ -1656,9 +1735,9 @@ Json::Value RPCHandler::doRipplePathFind (Json::Value params, LoadType* loadType
 //   tx_json: <object>,
 //   secret: <secret>
 // }
-Json::Value RPCHandler::doSign (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doSign (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
-    *loadType = LT_RPCBurden;
+    loadType = Resource::feeHighBurdenRPC;
     bool bFailHard = params.isMember ("fail_hard") && params["fail_hard"].asBool ();
     return transactionSign (params, false, bFailHard, masterLockHolder);
 }
@@ -1667,8 +1746,10 @@ Json::Value RPCHandler::doSign (Json::Value params, LoadType* loadType, Applicat
 //   tx_json: <object>,
 //   secret: <secret>
 // }
-Json::Value RPCHandler::doSubmit (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doSubmit (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
+    loadType = Resource::feeMediumBurdenRPC;
+
     if (!params.isMember ("tx_blob"))
     {
         bool bFailHard = params.isMember ("fail_hard") && params["fail_hard"].asBool ();
@@ -1684,7 +1765,6 @@ Json::Value RPCHandler::doSubmit (Json::Value params, LoadType* loadType, Applic
         return rpcError (rpcINVALID_PARAMS);
     }
 
-    *loadType = LT_RPCBurden;
 
     Serializer                  sTrans (vucBlob);
     SerializerIterator          sitTrans (sTrans);
@@ -1760,7 +1840,7 @@ Json::Value RPCHandler::doSubmit (Json::Value params, LoadType* loadType, Applic
     }
 }
 
-Json::Value RPCHandler::doConsensusInfo (Json::Value, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doConsensusInfo (Json::Value, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Json::Value ret (Json::objectValue);
 
@@ -1769,7 +1849,7 @@ Json::Value RPCHandler::doConsensusInfo (Json::Value, LoadType* loadType, Applic
     return ret;
 }
 
-Json::Value RPCHandler::doFetchInfo (Json::Value jvParams, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doFetchInfo (Json::Value jvParams, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     masterLockHolder.unlock ();
 
@@ -1786,7 +1866,7 @@ Json::Value RPCHandler::doFetchInfo (Json::Value jvParams, LoadType* loadType, A
     return ret;
 }
 
-Json::Value RPCHandler::doServerInfo (Json::Value, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doServerInfo (Json::Value, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Json::Value ret (Json::objectValue);
 
@@ -1795,7 +1875,7 @@ Json::Value RPCHandler::doServerInfo (Json::Value, LoadType* loadType, Applicati
     return ret;
 }
 
-Json::Value RPCHandler::doServerState (Json::Value, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doServerState (Json::Value, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Json::Value ret (Json::objectValue);
 
@@ -1807,8 +1887,9 @@ Json::Value RPCHandler::doServerState (Json::Value, LoadType* loadType, Applicat
 // {
 //   start: <index>
 // }
-Json::Value RPCHandler::doTxHistory (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doTxHistory (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
+    loadType = Resource::feeMediumBurdenRPC;
     masterLockHolder.unlock ();
 
     if (!params.isMember ("start"))
@@ -1848,7 +1929,7 @@ Json::Value RPCHandler::doTxHistory (Json::Value params, LoadType* loadType, App
 // {
 //   transaction: <hex>
 // }
-Json::Value RPCHandler::doTx (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doTx (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     masterLockHolder.unlock ();
 
@@ -1916,7 +1997,7 @@ Json::Value RPCHandler::doTx (Json::Value params, LoadType* loadType, Applicatio
     return rpcError (rpcNOT_IMPL);
 }
 
-Json::Value RPCHandler::doLedgerClosed (Json::Value, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doLedgerClosed (Json::Value, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Json::Value jvResult;
 
@@ -1929,7 +2010,7 @@ Json::Value RPCHandler::doLedgerClosed (Json::Value, LoadType* loadType, Applica
     return jvResult;
 }
 
-Json::Value RPCHandler::doLedgerCurrent (Json::Value, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doLedgerCurrent (Json::Value, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Json::Value jvResult;
 
@@ -1943,7 +2024,7 @@ Json::Value RPCHandler::doLedgerCurrent (Json::Value, LoadType* loadType, Applic
 //    ledger: 'current' | 'closed' | <uint256> | <number>,  // optional
 //    full: true | false    // optional, defaults to false.
 // }
-Json::Value RPCHandler::doLedger (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doLedger (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     if (!params.isMember ("ledger") && !params.isMember ("ledger_hash") && !params.isMember ("ledger_index"))
     {
@@ -1976,10 +2057,14 @@ Json::Value RPCHandler::doLedger (Json::Value params, LoadType* loadType, Applic
                               | (bTransactions ? LEDGER_JSON_DUMP_TXRP : 0)
                               | (bAccounts ? LEDGER_JSON_DUMP_STATE : 0);
 
-    if ((bFull || bAccounts) && getApp().getFeeTrack().isLoadedLocal() && (mRole != Config::ADMIN))
+    if (bFull || bAccounts | bExpand)
     {
-       WriteLog (lsDEBUG, Peer) << "Too busy to give full ledger";
-       return rpcError(rpcTOO_BUSY);
+        if (getApp().getFeeTrack().isLoadedLocal() && (mRole != Config::ADMIN))
+        {
+            WriteLog (lsDEBUG, Peer) << "Too busy to give full ledger";
+            return rpcError(rpcTOO_BUSY);
+        }
+        loadType = Resource::feeHighBurdenRPC;
     }
 
 
@@ -1990,7 +2075,7 @@ Json::Value RPCHandler::doLedger (Json::Value params, LoadType* loadType, Applic
 }
 
 // Temporary switching code until the old account_tx is removed
-Json::Value RPCHandler::doAccountTxSwitch (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doAccountTxSwitch (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     if (params.isMember("offset") || params.isMember("count") || params.isMember("descending") ||
             params.isMember("ledger_max") || params.isMember("ledger_min"))
@@ -2008,7 +2093,7 @@ Json::Value RPCHandler::doAccountTxSwitch (Json::Value params, LoadType* loadTyp
 //   offset: integer,              // optional, defaults to 0
 //   limit: integer                // optional
 // }
-Json::Value RPCHandler::doAccountTxOld (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doAccountTxOld (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     RippleAddress   raAccount;
     uint32          offset      = params.isMember ("offset") ? params["offset"].asUInt () : 0;
@@ -2027,6 +2112,11 @@ Json::Value RPCHandler::doAccountTxOld (Json::Value params, LoadType* loadType, 
 
     if (!raAccount.setAccountID (params["account"].asString ()))
         return rpcError (rpcACT_MALFORMED);
+
+    if (offset > 3000)
+        return rpcError (rpcATX_DEPRECATED);
+
+    loadType = Resource::feeHighBurdenRPC;
 
     // DEPRECATED
     if (params.isMember ("ledger_min"))
@@ -2072,6 +2162,8 @@ Json::Value RPCHandler::doAccountTxOld (Json::Value params, LoadType* loadType, 
         uLedgerMin = uLedgerMax = l->getLedgerSeq ();
     }
 
+    int count = 0;
+
 #ifndef BEAST_DEBUG
 
     try
@@ -2092,6 +2184,7 @@ Json::Value RPCHandler::doAccountTxOld (Json::Value params, LoadType* loadType, 
             for (std::vector<NetworkOPs::txnMetaLedgerType>::const_iterator it = txns.begin (), end = txns.end ();
                     it != end; ++it)
             {
+                ++count;
                 Json::Value& jvObj = jvTxns.append (Json::objectValue);
 
                 uint32  uLedgerIndex    = it->get<2> ();
@@ -2108,6 +2201,7 @@ Json::Value RPCHandler::doAccountTxOld (Json::Value params, LoadType* loadType, 
 
             for (std::vector< std::pair<Transaction::pointer, TransactionMetaSet::pointer> >::iterator it = txns.begin (), end = txns.end (); it != end; ++it)
             {
+                ++count;
                 Json::Value&    jvObj = jvTxns.append (Json::objectValue);
 
                 if (it->first)
@@ -2130,8 +2224,10 @@ Json::Value RPCHandler::doAccountTxOld (Json::Value params, LoadType* loadType, 
         ret["validated"]        = bValidated && uValidatedMin <= uLedgerMin && uValidatedMax >= uLedgerMax;
         ret["offset"]           = offset;
 
+        // We no longer return the full count but only the count of returned transactions
+        // Computing this count was two expensive and this API is deprecated anyway
         if (bCount)
-            ret["count"]        = mNetOps->countAccountTxs (raAccount, uLedgerMin, uLedgerMax);
+            ret["count"]        = count;
 
         if (params.isMember ("limit"))
             ret["limit"]        = limit;
@@ -2157,7 +2253,7 @@ Json::Value RPCHandler::doAccountTxOld (Json::Value params, LoadType* loadType, 
 //   limit: integer,                 // optional
 //   marker: opaque                  // optional, resume previous query
 // }
-Json::Value RPCHandler::doAccountTx (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doAccountTx (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     RippleAddress   raAccount;
     int             limit       = params.isMember ("limit") ? params["limit"].asUInt () : -1;
@@ -2180,6 +2276,8 @@ Json::Value RPCHandler::doAccountTx (Json::Value params, LoadType* loadType, App
 
     if (!raAccount.setAccountID (params["account"].asString ()))
         return rpcError (rpcACT_MALFORMED);
+
+    loadType = Resource::feeMediumBurdenRPC;
 
     if (params.isMember ("ledger_index_min") || params.isMember ("ledger_index_max"))
     {
@@ -2290,7 +2388,7 @@ Json::Value RPCHandler::doAccountTx (Json::Value params, LoadType* loadType, App
 // }
 //
 // This command requires Config::ADMIN access because it makes no sense to ask an untrusted server for this.
-Json::Value RPCHandler::doValidationCreate (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doValidationCreate (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     RippleAddress   raSeed;
     Json::Value     obj (Json::objectValue);
@@ -2316,7 +2414,7 @@ Json::Value RPCHandler::doValidationCreate (Json::Value params, LoadType* loadTy
 // {
 //   secret: <string>
 // }
-Json::Value RPCHandler::doValidationSeed (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doValidationSeed (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Json::Value obj (Json::objectValue);
 
@@ -2387,7 +2485,7 @@ Json::Value RPCHandler::accounts (Ledger::ref lrLedger, const RippleAddress& naM
 //   ledger_hash : <ledger>
 //   ledger_index : <ledger_index>
 // }
-Json::Value RPCHandler::doWalletAccounts (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doWalletAccounts (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Ledger::pointer     lpLedger;
     Json::Value         jvResult    = lookupLedger (params, lpLedger);
@@ -2430,7 +2528,7 @@ Json::Value RPCHandler::doWalletAccounts (Json::Value params, LoadType* loadType
     }
 }
 
-Json::Value RPCHandler::doLogRotate (Json::Value, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doLogRotate (Json::Value, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     return LogSink::get()->rotateLog ();
 }
@@ -2438,7 +2536,7 @@ Json::Value RPCHandler::doLogRotate (Json::Value, LoadType* loadType, Applicatio
 // {
 //  passphrase: <string>
 // }
-Json::Value RPCHandler::doWalletPropose (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doWalletPropose (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     masterLockHolder.unlock ();
 
@@ -2470,7 +2568,7 @@ Json::Value RPCHandler::doWalletPropose (Json::Value params, LoadType* loadType,
 // {
 //   secret: <string>
 // }
-Json::Value RPCHandler::doWalletSeed (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doWalletSeed (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     RippleAddress   raSeed;
     bool            bSecret = params.isMember ("secret");
@@ -2509,7 +2607,7 @@ Json::Value RPCHandler::doWalletSeed (Json::Value params, LoadType* loadType, Ap
 //   username: <string>,
 //   password: <string>
 // }
-Json::Value RPCHandler::doLogin (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doLogin (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     if (!params.isMember ("username")
             || !params.isMember ("password"))
@@ -2547,7 +2645,7 @@ static void textTime (std::string& text, int& seconds, const char* unitName, int
         text += "s";
 }
 
-Json::Value RPCHandler::doFeature (Json::Value params, LoadType* loadType, Application::ScopedLockType& mlh)
+Json::Value RPCHandler::doFeature (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& mlh)
 {
     if (!params.isMember ("feature"))
     {
@@ -2576,7 +2674,7 @@ Json::Value RPCHandler::doFeature (Json::Value params, LoadType* loadType, Appli
 // {
 //   min_count: <number>  // optional, defaults to 10
 // }
-Json::Value RPCHandler::doGetCounts (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doGetCounts (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     int minCount = 10;
 
@@ -2628,7 +2726,7 @@ Json::Value RPCHandler::doGetCounts (Json::Value params, LoadType* loadType, App
     return ret;
 }
 
-Json::Value RPCHandler::doLogLevel (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doLogLevel (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     // log_level
     if (!params.isMember ("severity"))
@@ -2681,7 +2779,7 @@ Json::Value RPCHandler::doLogLevel (Json::Value params, LoadType* loadType, Appl
 //   node: <domain>|<node_public>,
 //   comment: <comment>             // optional
 // }
-Json::Value RPCHandler::doUnlAdd (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doUnlAdd (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     std::string strNode     = params.isMember ("node") ? params["node"].asString () : "";
     std::string strComment  = params.isMember ("comment") ? params["comment"].asString () : "";
@@ -2705,7 +2803,7 @@ Json::Value RPCHandler::doUnlAdd (Json::Value params, LoadType* loadType, Applic
 // {
 //   node: <domain>|<public_key>
 // }
-Json::Value RPCHandler::doUnlDelete (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doUnlDelete (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     if (!params.isMember ("node"))
         return rpcError (rpcINVALID_PARAMS);
@@ -2728,7 +2826,7 @@ Json::Value RPCHandler::doUnlDelete (Json::Value params, LoadType* loadType, App
     }
 }
 
-Json::Value RPCHandler::doUnlList (Json::Value, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doUnlList (Json::Value, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Json::Value obj (Json::objectValue);
 
@@ -2738,7 +2836,7 @@ Json::Value RPCHandler::doUnlList (Json::Value, LoadType* loadType, Application:
 }
 
 // Populate the UNL from a local validators.txt file.
-Json::Value RPCHandler::doUnlLoad (Json::Value, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doUnlLoad (Json::Value, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     if (getConfig ().VALIDATORS_FILE.empty () || !getApp().getUNL ().nodeLoad (getConfig ().VALIDATORS_FILE))
     {
@@ -2750,7 +2848,7 @@ Json::Value RPCHandler::doUnlLoad (Json::Value, LoadType* loadType, Application:
 
 
 // Populate the UNL from ripple.com's validators.txt file.
-Json::Value RPCHandler::doUnlNetwork (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doUnlNetwork (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     getApp().getUNL ().nodeNetwork ();
 
@@ -2758,7 +2856,7 @@ Json::Value RPCHandler::doUnlNetwork (Json::Value params, LoadType* loadType, Ap
 }
 
 // unl_reset
-Json::Value RPCHandler::doUnlReset (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doUnlReset (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     getApp().getUNL ().nodeReset ();
 
@@ -2766,14 +2864,14 @@ Json::Value RPCHandler::doUnlReset (Json::Value params, LoadType* loadType, Appl
 }
 
 // unl_score
-Json::Value RPCHandler::doUnlScore (Json::Value, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doUnlScore (Json::Value, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     getApp().getUNL ().nodeScore ();
 
     return "scoring requested";
 }
 
-Json::Value RPCHandler::doSMS (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doSMS (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     if (!params.isMember ("text"))
         return rpcError (rpcINVALID_PARAMS);
@@ -2782,14 +2880,14 @@ Json::Value RPCHandler::doSMS (Json::Value params, LoadType* loadType, Applicati
 
     return "sms dispatched";
 }
-Json::Value RPCHandler::doStop (Json::Value, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doStop (Json::Value, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     getApp().signalStop ();
 
     return SYSTEM_NAME " server stopping";
 }
 
-Json::Value RPCHandler::doLedgerAccept (Json::Value, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doLedgerAccept (Json::Value, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Json::Value jvResult;
 
@@ -2807,12 +2905,19 @@ Json::Value RPCHandler::doLedgerAccept (Json::Value, LoadType* loadType, Applica
     return jvResult;
 }
 
+Json::Value RPCHandler::doLedgerCleaner (Json::Value parameters, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
+{
+    masterLockHolder.unlock();
+    getApp().getLedgerMaster().doLedgerCleaner (parameters);
+    return "Cleaner configured";
+}
+
 // {
 //   ledger_hash : <ledger>,
 //   ledger_index : <ledger_index>
 // }
 // XXX In this case, not specify either ledger does not mean ledger current. It means any ledger.
-Json::Value RPCHandler::doTransactionEntry (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doTransactionEntry (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Ledger::pointer     lpLedger;
     Json::Value         jvResult    = lookupLedger (params, lpLedger);
@@ -2985,7 +3090,7 @@ Json::Value RPCHandler::lookupLedger (Json::Value params, Ledger::pointer& lpLed
 //   ledger_index : <ledger_index>
 //   ...
 // }
-Json::Value RPCHandler::doLedgerEntry (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doLedgerEntry (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Ledger::pointer     lpLedger;
     Json::Value         jvResult    = lookupLedger (params, lpLedger);
@@ -3201,7 +3306,7 @@ Json::Value RPCHandler::doLedgerEntry (Json::Value params, LoadType* loadType, A
 //   ledger_hash : <ledger>
 //   ledger_index : <ledger_index>
 // }
-Json::Value RPCHandler::doLedgerHeader (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doLedgerHeader (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     Ledger::pointer     lpLedger;
     Json::Value         jvResult    = lookupLedger (params, lpLedger);
@@ -3243,7 +3348,7 @@ boost::unordered_set<RippleAddress> RPCHandler::parseAccountIds (const Json::Val
     return usnaResult;
 }
 
-Json::Value RPCHandler::doSubscribe (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doSubscribe (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     InfoSub::pointer ispSub;
     Json::Value jvResult (Json::objectValue);
@@ -3509,6 +3614,7 @@ Json::Value RPCHandler::doSubscribe (Json::Value params, LoadType* loadType, App
 
             if (bSnapshot)
             {
+                loadType = Resource::feeMediumBurdenRPC;
                 Ledger::pointer     lpLedger = getApp().getLedgerMaster ().getPublishedLedger ();
                 if (lpLedger)
                 {
@@ -3540,7 +3646,7 @@ Json::Value RPCHandler::doSubscribe (Json::Value params, LoadType* loadType, App
 }
 
 // FIXME: This leaks RPCSub objects for JSON-RPC.  Shouldn't matter for anyone sane.
-Json::Value RPCHandler::doUnsubscribe (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doUnsubscribe (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     InfoSub::pointer ispSub;
     Json::Value jvResult (Json::objectValue);
@@ -3730,7 +3836,7 @@ Json::Value RPCHandler::doUnsubscribe (Json::Value params, LoadType* loadType, A
 //
 // JSON-RPC provides a method and an array of params. JSON-RPC is used as a transport for a command and a request object. The
 // command is the method. The request object is supplied as the first element of the params.
-Json::Value RPCHandler::doRpcCommand (const std::string& strMethod, Json::Value const& jvParams, int iRole, LoadType* loadType)
+Json::Value RPCHandler::doRpcCommand (const std::string& strMethod, Json::Value const& jvParams, int iRole, Resource::Charge& loadType)
 {
     WriteLog (lsTRACE, RPCHandler) << "doRpcCommand:" << strMethod << ":" << jvParams;
 
@@ -3771,7 +3877,7 @@ Json::Value RPCHandler::doRpcCommand (const std::string& strMethod, Json::Value 
     return jvResult;
 }
 
-Json::Value RPCHandler::doInternal (Json::Value params, LoadType* loadType, Application::ScopedLockType& masterLockHolder)
+Json::Value RPCHandler::doInternal (Json::Value params, Resource::Charge& loadType, Application::ScopedLockType& masterLockHolder)
 {
     // Used for debug or special-purpose RPC commands
     if (!params.isMember ("internal_command"))
@@ -3780,7 +3886,7 @@ Json::Value RPCHandler::doInternal (Json::Value params, LoadType* loadType, Appl
     return RPCInternalHandler::runHandler (params["internal_command"].asString (), params["params"]);
 }
 
-Json::Value RPCHandler::doCommand (const Json::Value& params, int iRole, LoadType* loadType)
+Json::Value RPCHandler::doCommand (const Json::Value& params, int iRole, Resource::Charge& loadType)
 {
     if (iRole != Config::ADMIN)
     {
@@ -3815,6 +3921,7 @@ Json::Value RPCHandler::doCommand (const Json::Value& params, int iRole, LoadTyp
     {
         // Request-response methods
         {   "account_info",         &RPCHandler::doAccountInfo,         false,  optCurrent  },
+        {   "account_currencies",   &RPCHandler::doAccountCurrencies,   false,  optCurrent  },
         {   "account_lines",        &RPCHandler::doAccountLines,        false,  optCurrent  },
         {   "account_offers",       &RPCHandler::doAccountOffers,       false,  optCurrent  },
         {   "account_tx",           &RPCHandler::doAccountTxSwitch,     false,  optNetwork  },
@@ -3828,6 +3935,7 @@ Json::Value RPCHandler::doCommand (const Json::Value& params, int iRole, LoadTyp
         {   "fetch_info",           &RPCHandler::doFetchInfo,           true,   optNone     },
         {   "ledger",               &RPCHandler::doLedger,              false,  optNetwork  },
         {   "ledger_accept",        &RPCHandler::doLedgerAccept,        true,   optCurrent  },
+        {   "ledger_cleaner",       &RPCHandler::doLedgerCleaner,       true,   optNetwork  },
         {   "ledger_closed",        &RPCHandler::doLedgerClosed,        false,  optClosed   },
         {   "ledger_current",       &RPCHandler::doLedgerCurrent,       false,  optCurrent  },
         {   "ledger_entry",         &RPCHandler::doLedgerEntry,         false,  optCurrent  },
@@ -3941,8 +4049,8 @@ Json::Value RPCHandler::doCommand (const Json::Value& params, int iRole, LoadTyp
             {
                 WriteLog (lsINFO, RPCHandler) << "Caught throw: " << e.what ();
 
-                if (*loadType == LT_RPCReference)
-                    *loadType = LT_RPCException;
+                if (loadType == Resource::feeReferenceRPC)
+                    loadType = Resource::feeExceptionRPC;
 
                 return rpcError (rpcINTERNAL);
             }

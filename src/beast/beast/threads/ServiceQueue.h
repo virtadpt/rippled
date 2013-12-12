@@ -328,6 +328,8 @@ private:
 
 #endif
 
+}
+
 //------------------------------------------------------------------------------
 
 class ServiceQueueBase
@@ -351,7 +353,8 @@ protected:
     class ScopedServiceThread;
 
     void wait();
-    void enqueue (Item* item);
+    virtual void enqueue (Item* item);
+	bool empty();
 
     virtual std::size_t dequeue() = 0;
     virtual Waiter* new_waiter() = 0;
@@ -399,8 +402,6 @@ protected:
     static ThreadLocalValue <ServiceQueueBase*> s_service;
 };
 
-}
-
 //------------------------------------------------------------------------------
 
 /** A queue for disatching function calls on other threads.
@@ -408,7 +409,7 @@ protected:
     calling run, run_one, poll, or poll_one.
 */
 template <class Allocator = std::allocator <char> >
-class ServiceQueueType : public detail::ServiceQueueBase
+class ServiceQueueType : public ServiceQueueBase
 {
 private:
     using ServiceQueueBase::Item;

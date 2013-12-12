@@ -19,8 +19,7 @@
 
 #include "../Journal.h"
 
-namespace beast
-{
+namespace beast {
 
 //------------------------------------------------------------------------------
 
@@ -28,25 +27,30 @@ namespace beast
 class NullJournalSink : public Journal::Sink
 {
 public:
+    bool active (Journal::Severity) const
+    {
+        return false;
+    }
+
+    bool console() const
+    {
+        return false;
+    }
+
+    void console (bool)
+    {
+    }
+
+    Journal::Severity severity() const
+    {
+        return Journal::kDisabled;
+    }
+
+    void severity (Journal::Severity)
+    {
+    }
+
     void write (Journal::Severity, std::string const&)
-    {
-    }
-
-    bool active (Journal::Severity)
-    {
-        return false;
-    }
-
-    bool console ()
-    {
-        return false;
-    }
-
-    void set_severity (Journal::Severity)
-    {
-    }
-
-    void set_console (bool)
     {
     }
 };
@@ -65,28 +69,39 @@ Journal::ScopedStream::ScopedStream (Stream const& stream)
     : m_sink (stream.sink())
     , m_severity (stream.severity())
 {
+    init ();
 }
 
 Journal::ScopedStream::ScopedStream (ScopedStream const& other)
     : m_sink (other.m_sink)
     , m_severity (other.m_severity)
 {
+    init ();
 }
 
 Journal::ScopedStream::ScopedStream (Stream const& stream, std::ostream& manip (std::ostream&))
     : m_sink (stream.sink())
     , m_severity (stream.severity())
 {
+    init ();
     m_ostream << manip;
 }
 
 Journal::ScopedStream::~ScopedStream ()
 {
-    if (! m_ostream.str().empty())
-    {
-        if (m_sink.active (m_severity))
-            m_sink.write (m_severity, m_ostream.str());
-    }
+    if (! m_ostream.str().empty() && m_sink.active (m_severity))
+        m_sink.write (m_severity, m_ostream.str());
+}
+
+void Journal::ScopedStream::init ()
+{
+    // Modifiers applied from all ctors
+    m_ostream
+        << std::boolalpha
+        << std::showbase
+        //<< std::hex
+        ;
+
 }
 
 std::ostream& Journal::ScopedStream::operator<< (std::ostream& manip (std::ostream&)) const
@@ -133,6 +148,11 @@ Journal::Severity Journal::Stream::severity () const
 bool Journal::Stream::active () const
 {
     return m_sink->active (m_severity);
+}
+
+bool Journal::Stream::asBoolean () const
+{
+    return active();
 }
 
 Journal::Stream& Journal::Stream::operator= (Stream const& other)

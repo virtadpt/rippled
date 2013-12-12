@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 #ifndef RIPPLE_WSSERVERHANDLER_H_INCLUDED
 #define RIPPLE_WSSERVERHANDLER_H_INCLUDED
 
@@ -73,15 +72,17 @@ protected:
     boost::unordered_map <connection_ptr,
         boost::shared_ptr <WSConnectionType <endpoint_type> > > mMap;
     bool const mPublic;
+    bool const mProxy;
 
 public:
     WSServerHandler (Resource::Manager& resourceManager,
-        InfoSub::Source& source, boost::asio::ssl::context& ssl_context, bool bPublic)
+        InfoSub::Source& source, boost::asio::ssl::context& ssl_context, bool bPublic, bool bProxy)
         : m_resourceManager (resourceManager)
         , m_source (source)
         , mLock (static_cast <WSServerHandlerBase*> (this), "WSServerHandler", __FILE__, __LINE__)
         , m_ssl_context (ssl_context)
         , mPublic (bPublic)
+        , mProxy (bProxy)
     {
     }
 
@@ -249,9 +250,9 @@ public:
         {
             try
             {
-                WriteLog (lsDEBUG, WSServerHandlerLog) << "Ws:: Rejected("
-                                                       << cpClient->get_socket ().lowest_layer ().remote_endpoint ().address ().to_string ()
-                                                       << ") '" << mpMessage->get_payload () << "'";
+                WriteLog (lsDEBUG, WSServerHandlerLog) <<
+                    "Ws:: Rejected(" << cpClient->get_socket ().remote_endpoint ().to_string () <<
+                    ") '" << mpMessage->get_payload () << "'";
             }
             catch (...)
             {
@@ -301,9 +302,9 @@ public:
 
         try
         {
-            WriteLog (lsDEBUG, WSServerHandlerLog) << "Ws:: Receiving("
-                                                   << cpClient->get_socket ().lowest_layer ().remote_endpoint ().address ().to_string ()
-                                                   << ") '" << mpMessage->get_payload () << "'";
+            WriteLog (lsDEBUG, WSServerHandlerLog) <<
+                "Ws:: Receiving(" << cpClient->get_socket ().remote_endpoint ().to_string () <<
+                ") '" << mpMessage->get_payload () << "'";
         }
         catch (...)
         {
@@ -345,6 +346,10 @@ public:
     boost::asio::ssl::context& get_ssl_context ()
     {
         return m_ssl_context;
+    }
+    bool get_proxy ()
+    {
+        return mProxy;
     }
 
     // Respond to http requests.

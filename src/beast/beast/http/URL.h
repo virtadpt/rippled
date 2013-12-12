@@ -22,6 +22,8 @@
 
 #include "../strings/String.h"
 
+#include <ios>
+
 namespace beast {
 
 /** A URL.
@@ -90,7 +92,10 @@ public:
     String userinfo () const;
 
     /** Retrieve the full URL as a single string. */
-    String full () const;
+    /** @{ */
+    String toString () const;
+    std::string to_string() const;
+    /** @} */
 
 private:
     String m_scheme;
@@ -103,6 +108,40 @@ private:
     String m_userinfo;
 };
 
+/** URL comparisons. */
+/** @{ */
+inline bool operator== (URL const& lhs, URL const& rhs) { return    lhs.toString() == rhs.toString(); }
+inline bool operator!= (URL const& lhs, URL const& rhs) { return ! (lhs.toString() == rhs.toString()); }
+inline bool operator<  (URL const& lhs, URL const& rhs) { return    lhs.toString() <  rhs.toString(); }
+inline bool operator>  (URL const& lhs, URL const& rhs) { return    rhs.toString() <  lhs.toString(); }
+inline bool operator<= (URL const& lhs, URL const& rhs) { return ! (rhs.toString() <  lhs.toString()); }
+inline bool operator>= (URL const& lhs, URL const& rhs) { return ! (lhs.toString() <  rhs.toString()); }
+/** @} */
+
+/** Output stream conversion. */
+std::ostream& operator<< (std::ostream& os, URL const& url);
+
+/** boost::hash support */
+extern std::size_t hash_value (beast::URL const& url);
+
 }
+
+//------------------------------------------------------------------------------
+
+namespace std {
+
+template <typename T>
+struct hash;
+
+template <>
+struct hash <beast::URL>
+{
+    std::size_t operator() (beast::URL const& v) const
+        { return beast::hash_value (v); }
+};
+
+}
+
+//------------------------------------------------------------------------------
 
 #endif

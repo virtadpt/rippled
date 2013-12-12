@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 #ifndef RIPPLE_NET_RPC_INFOSUB_H_INCLUDED
 #define RIPPLE_NET_RPC_INFOSUB_H_INCLUDED
 
@@ -40,6 +39,8 @@ public:
     typedef boost::weak_ptr<InfoSub>            wptr;
 
     typedef const boost::shared_ptr<InfoSub>&   ref;
+
+    typedef Resource::Consumer Consumer;
 
 public:
     /** Abstracts the source of subscription data.
@@ -96,9 +97,11 @@ public:
     };
 
 public:
-    explicit InfoSub (Source& source);
+    InfoSub (Source& source, Consumer consumer);
 
     virtual ~InfoSub ();
+
+    Consumer& getConsumer();
 
     virtual void send (const Json::Value & jvObj, bool broadcast) = 0;
 
@@ -123,6 +126,7 @@ protected:
     LockType mLock;
 
 private:
+    Consumer m_consumer;
     Source& m_source;
     boost::unordered_set <RippleAddress>        mSubAccountInfo;
     boost::unordered_set <RippleAddress>        mSubAccountTransaction;
