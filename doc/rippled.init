@@ -50,11 +50,11 @@ case "$1" in
         echo "Status of $NAME:"
         echo -n "PID of $NAME: "
         if [ -f "$PIDFILE" ]; then
-		cat $PIDFILE
-        	$DAEMON $DAEMON_OPTS server_info
-	else
-		echo "$NAME not running."
-	fi
+                cat $PIDFILE
+                $DAEMON $DAEMON_OPTS server_info
+        else
+                echo "$NAME not running."
+        fi
         echo "."
         ;;
 
