@@ -18,14 +18,14 @@
 //==============================================================================
 
 #include "Transactor.h"
-#include "ChangeTransactor.h"
-#include "OfferCancelTransactor.h"
-#include "OfferCreateTransactor.h"
-#include "PaymentTransactor.h"
-#include "RegularKeySetTransactor.h"
-#include "AccountSetTransactor.h"
-#include "TrustSetTransactor.h"
-#include "WalletAddTransactor.h"
+#include "AddWallet.h"
+#include "CancelOffer.h"
+#include "Change.h"
+#include "CreateOffer.h"
+#include "Payment.h"
+#include "SetAccount.h"
+#include "SetRegularKey.h"
+#include "SetTrust.h"
 
 namespace ripple {
 
@@ -53,8 +53,7 @@ std::unique_ptr<Transactor> Transactor::makeTransactor (
             new TrustSetTransactor (txn, params, engine));
 
     case ttOFFER_CREATE:
-        return std::unique_ptr<Transactor> (
-            new OfferCreateTransactor (txn, params, engine));
+        return make_OfferCreateTransactor (txn, params, engine);
 
     case ttOFFER_CANCEL:
         return std::unique_ptr<Transactor> (
@@ -64,7 +63,7 @@ std::unique_ptr<Transactor> Transactor::makeTransactor (
         return std::unique_ptr<Transactor> (
             new WalletAddTransactor (txn, params, engine));
 
-    case ttFEATURE:
+    case ttAMENDMENT:
     case ttFEE:
         return std::unique_ptr<Transactor> (
             new ChangeTransactor (txn, params, engine));
@@ -79,7 +78,7 @@ Transactor::Transactor (
     SerializedTransaction const& txn,
     TransactionEngineParams params,
     TransactionEngine* engine,
-    Journal journal) 
+    beast::Journal journal)
     : mTxn (txn)
     , mEngine (engine)
     , mParams (params)
@@ -92,10 +91,10 @@ Transactor::Transactor (
 void Transactor::calculateFee ()
 {
     mFeeDue = STAmount (mEngine->getLedger ()->scaleFeeLoad (
-        calculateBaseFee (), isSetBit (mParams, tapADMIN)));
+        calculateBaseFee (), is_bit_set (mParams, tapADMIN)));
 }
 
-uint64 Transactor::calculateBaseFee ()
+std::uint64_t Transactor::calculateBaseFee ()
 {
     return getConfig ().FEE_DEFAULT;
 }
@@ -108,15 +107,15 @@ TER Transactor::payFee ()
         return temBAD_AMOUNT;
 
     // Only check fee is sufficient when the ledger is open.
-    if (isSetBit (mParams, tapOPEN_LEDGER) && saPaid < mFeeDue)
+    if (is_bit_set (mParams, tapOPEN_LEDGER) && saPaid < mFeeDue)
     {
-        m_journal.info << "Insufficient fee paid: " << 
+        m_journal.trace << "Insufficient fee paid: " <<
             saPaid.getText () << "/" << mFeeDue.getText ();
 
         return telINSUF_FEE_P;
     }
 
-    if (saPaid.isNegative () || !saPaid.isNative ())
+    if (saPaid < zero || !saPaid.isNative ())
         return temBAD_FEE;
 
     if (!saPaid) return tesSUCCESS;
@@ -125,7 +124,7 @@ TER Transactor::payFee ()
     // Will only write the account back, if the transaction succeeds.
     if (mSourceBalance < saPaid)
     {
-        m_journal.info << "Insufficient balance:" <<
+        m_journal.trace << "Insufficient balance:" <<
             " balance=" << mSourceBalance.getText () <<
             " paid=" << saPaid.getText ();
 
@@ -156,12 +155,12 @@ TER Transactor::checkSig ()
     }
     else if (mHasAuthKey)
     {
-        m_journal.info << "applyTransaction: Delay: Not authorized to use account.";
+        m_journal.trace << "applyTransaction: Delay: Not authorized to use account.";
         return tefBAD_AUTH;
     }
     else
     {
-        m_journal.info << "applyTransaction: Invalid: Not authorized to use account.";
+        m_journal.trace << "applyTransaction: Invalid: Not authorized to use account.";
 
         return temBAD_AUTH_MASTER;
     }
@@ -171,8 +170,8 @@ TER Transactor::checkSig ()
 
 TER Transactor::checkSeq ()
 {
-    uint32 t_seq = mTxn.getSequence ();
-    uint32 a_seq = mTxnAccount->getFieldU32 (sfSequence);
+    std::uint32_t t_seq = mTxn.getSequence ();
+    std::uint32_t a_seq = mTxnAccount->getFieldU32 (sfSequence);
 
     m_journal.trace << "Aseq=" << a_seq << ", Tseq=" << t_seq;
 
@@ -180,7 +179,7 @@ TER Transactor::checkSeq ()
     {
         if (a_seq < t_seq)
         {
-            m_journal.info << "apply: transaction has future sequence number";
+            m_journal.trace << "apply: transaction has future sequence number";
 
             return terPRE_SEQ;
         }
@@ -239,7 +238,7 @@ TER Transactor::preCheck ()
     // Consistency: really signed.
     if (!mTxn.isKnownGood ())
     {
-        if (mTxn.isKnownBad () || (!isSetBit (mParams, tapNO_CHECK_SIGN) && !mTxn.checkSign (mSigningPubKey)))
+        if (mTxn.isKnownBad () || (!is_bit_set (mParams, tapNO_CHECK_SIGN) && !mTxn.checkSign (mSigningPubKey)))
         {
             mTxn.setBad ();
             m_journal.warning << "apply: Invalid transaction (bad signature)";
@@ -260,9 +259,9 @@ TER Transactor::apply ()
         return (terResult);
 
     // Restructure this to avoid the dependency on LedgerBase::mLock
-    Ledger::ScopedLockType sl (mEngine->getLedger ()->mLock, __FILE__, __LINE__);
+    Ledger::ScopedLockType sl (mEngine->getLedger ()->mLock);
 
-    mTxnAccount = mEngine->entryCache (ltACCOUNT_ROOT, 
+    mTxnAccount = mEngine->entryCache (ltACCOUNT_ROOT,
         Ledger::getAccountRootIndex (mTxnAccountID));
     calculateFee ();
 
@@ -274,7 +273,7 @@ TER Transactor::apply ()
     {
         if (mustHaveValidAccount ())
         {
-            m_journal.trace << 
+            m_journal.trace <<
                 "apply: delay transaction: source account does not exist " <<
                 mTxn.getSourceAccount ().humanAccountID ();
             return terNO_ACCOUNT;

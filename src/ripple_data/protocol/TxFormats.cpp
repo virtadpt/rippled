@@ -17,6 +17,8 @@
 */
 //==============================================================================
 
+namespace ripple {
+
 TxFormats::TxFormats ()
 {
     add ("AccountSet", ttACCOUNT_SET)
@@ -75,8 +77,8 @@ TxFormats::TxFormats ()
             << SOElement (sfTarget,          SOE_REQUIRED)
             ;
 
-    add ("EnableFeature", ttFEATURE)
-            << SOElement (sfFeature,         SOE_REQUIRED)
+    add ("EnableAmendment", ttAMENDMENT)
+            << SOElement (sfAmendment,         SOE_REQUIRED)
             ;
 
     add ("SetFee", ttFEE)
@@ -112,3 +114,5 @@ TxFormats* TxFormats::getInstance ()
     //return SharedSingleton <TxFormats>::getInstance ();
     return &instance;
 }
+
+} // ripple

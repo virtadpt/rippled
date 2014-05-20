@@ -20,6 +20,8 @@
 #ifndef RIPPLE_TXFORMATS_H_INCLUDED
 #define RIPPLE_TXFORMATS_H_INCLUDED
 
+namespace ripple {
+
 /** Transaction type identifiers.
 
     These are part of the binary message format.
@@ -44,7 +46,7 @@ enum TxType
 
     ttTRUST_SET         = 20,
 
-    ttFEATURE           = 100,
+    ttAMENDMENT         = 100,
     ttFEE               = 101,
 };
 
@@ -63,5 +65,7 @@ public:
 
     static TxFormats* getInstance ();
 };
+
+} // ripple
 
 #endif
